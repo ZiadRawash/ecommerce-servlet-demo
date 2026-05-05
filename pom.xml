@@ -18,7 +18,7 @@
         <dependency>
             <groupId>com.microsoft.sqlserver</groupId>
             <artifactId>mssql-jdbc</artifactId>
-            <version>12.6.1.jre8</version>
+            <version>13.4.0.jre8</version>
         </dependency>
 
         <dependency>
@@ -46,6 +46,9 @@
                 <configuration>
                     <path>/</path>
                     <port>8080</port>
+                    <systemProperties>
+                        <java.library.path>${project.basedir}</java.library.path>
+                    </systemProperties>
                 </configuration>
             </plugin>
 
