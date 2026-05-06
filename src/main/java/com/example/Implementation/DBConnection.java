@@ -5,7 +5,15 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 
 public class DBConnection {
-    private static final String URL = "jdbc:sqlserver://localhost:1433;databaseName=ECommerceServletDB;integratedSecurity=true;encrypt=true;trustServerCertificate=true;";
+
+    private static final String URL =
+            "jdbc:sqlserver://localhost:1433;" +
+                    "databaseName=ECommerceServletDB;" +
+                    "encrypt=false;" +
+                    "trustServerCertificate=true;";
+
+    private static final String USER = "sa";
+    private static final String PASSWORD = "Ebrahem@123456789";
 
     static {
         try {
@@ -16,6 +24,6 @@ public class DBConnection {
     }
 
     public static Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(URL);
+        return DriverManager.getConnection(URL, USER, PASSWORD);
     }
 }
