@@ -20,6 +20,13 @@ public class AuthFilter implements Filter {
         HttpServletRequest request = (HttpServletRequest) servletRequest;
         HttpServletResponse response = (HttpServletResponse) servletResponse;
 
+        String path = request.getPathInfo();
+
+
+        if (path != null && (path.equals("/login") || path.equals("/signup"))) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         String authHeader = request.getHeader("Authorization");
 

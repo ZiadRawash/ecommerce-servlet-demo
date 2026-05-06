@@ -109,7 +109,6 @@ public class AuthController extends HttpServlet {
                 sendErrorResponse(resp, 400, "Username and password are required");
                 return;
             }
-
             User user = userService.login(loginReq.getUsername(), loginReq.getPassword());
 
             if (user != null) {
