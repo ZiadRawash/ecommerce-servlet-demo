@@ -1,12 +1,14 @@
 com\example\Implementation\DBConnection.class
 com\example\Helpers\SecurityUtils.class
 com\example\Controllers\CategoryController.class
+com\example\Implementation\OrderSqlService$OrderItemTemp.class
 com\example\Implementation\CartSqlService.class
 com\example\Implementation\ProductServlet.class
 com\example\Controllers\AuthController.class
 com\example\Implementation\ProductSqlService.class
 com\example\model\OrderItem.class
 com\example\model\Order.class
+com\example\Implementation\OrderSqlService.class
 com\example\model\User.class
 com\example\Interfaces\ICartSqlService.class
 com\example\Interfaces\IProductSqlService.class
@@ -14,6 +16,8 @@ com\example\model\Cart.class
 com\example\Interfaces\IUserService.class
 com\example\Implementation\JwtService.class
 com\example\model\CartItem.class
+com\example\Controllers\OrderController.class
+com\example\Interfaces\IOrderService.class
 com\example\Controllers\CartController.class
 com\example\Implementation\CategorySqlService.class
 com\example\Interfaces\IJwtService.class
