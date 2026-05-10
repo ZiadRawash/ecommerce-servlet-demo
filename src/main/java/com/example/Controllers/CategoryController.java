@@ -6,6 +6,7 @@ import com.example.Interfaces.ICategorySqlService;
 import com.example.model.Category;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import redis.clients.jedis.Jedis;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -18,11 +19,37 @@ public class CategoryController extends HttpServlet {
 
     private final ICategorySqlService categoryService = new CategorySqlService();
     private final ObjectMapper mapper = new ObjectMapper();
+    private static final String REDIS_HOST = "localhost";
+    private static final int REDIS_PORT = 5002;
+    private static final String CATEGORIES_CACHE_KEY = "categories:all";
+    private static final int CATEGORIES_CACHE_TTL_SECONDS = 60;
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType("application/json");
         resp.setCharacterEncoding("UTF-8");
+
+        try (Jedis jedis = new Jedis(REDIS_HOST, REDIS_PORT)) {
+            String cachedCategories = jedis.get(CATEGORIES_CACHE_KEY);
+            if (cachedCategories != null) {
+                System.out.println("[CategoryCache] HIT key=" + CATEGORIES_CACHE_KEY);
+                resp.getWriter().write(cachedCategories);
+                return;
+            }
+
+            System.out.println("[CategoryCache] MISS key=" + CATEGORIES_CACHE_KEY + " -> loading from DB");
+
+            List<Category> categories = categoryService.getAllCategories();
+            String categoriesJson = mapper.writeValueAsString(categories);
+
+            jedis.setex(CATEGORIES_CACHE_KEY, CATEGORIES_CACHE_TTL_SECONDS, categoriesJson);
+            System.out.println("[CategoryCache] SET key=" + CATEGORIES_CACHE_KEY + " ttl=" + CATEGORIES_CACHE_TTL_SECONDS + "s");
+            resp.getWriter().write(categoriesJson);
+            return;
+        } catch (Exception e) {
+            // Fallback to DB response when Redis is unavailable.
+            System.err.println("[CategoryCache] Redis unavailable, fallback to DB. Reason: " + e.getMessage());
+        }
 
         List<Category> categories = categoryService.getAllCategories();
         mapper.writeValue(resp.getWriter(), categories);
@@ -57,6 +84,8 @@ public class CategoryController extends HttpServlet {
                 sendErrorResponse(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create category");
                 return;
             }
+
+            invalidateCategoriesCache();
 
             resp.setStatus(HttpServletResponse.SC_CREATED);
             resp.getWriter().write("{\"message\": \"Category added successfully\", \"categoryId\": " + createdCategory.getId() + "}");
@@ -95,6 +124,8 @@ public class CategoryController extends HttpServlet {
                 return;
             }
 
+            invalidateCategoriesCache();
+
             resp.getWriter().write("{\"message\": \"Category updated successfully\"}");
 
         } catch (NumberFormatException e) {
@@ -126,6 +157,8 @@ public class CategoryController extends HttpServlet {
                 return;
             }
 
+            invalidateCategoriesCache();
+
             resp.getWriter().write("{\"message\": \"Category deleted successfully\"}");
 
         } catch (NumberFormatException e) {
@@ -152,5 +185,14 @@ public class CategoryController extends HttpServlet {
 
     private boolean isNullOrEmpty(String str) {
         return str == null || str.trim().isEmpty();
+    }
+
+    private void invalidateCategoriesCache() {
+        try (Jedis jedis = new Jedis(REDIS_HOST, REDIS_PORT)) {
+            jedis.del(CATEGORIES_CACHE_KEY);
+            System.out.println("[CategoryCache] INVALIDATE key=" + CATEGORIES_CACHE_KEY);
+        } catch (Exception ignored) {
+            System.err.println("[CategoryCache] Failed to invalidate key=" + CATEGORIES_CACHE_KEY);
+        }
     }
 }
