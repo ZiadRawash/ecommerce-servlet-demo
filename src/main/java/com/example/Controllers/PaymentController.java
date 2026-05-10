@@ -7,18 +7,22 @@ import com.example.Interfaces.IPaymentService;
 import com.example.model.Payment;
 import com.example.model.PaymentRequest;
 import com.example.model.PaymentResponse;
+import com.google.gson.Gson; // مكتبة لتحويل JSON لـ Object
 
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @WebServlet("/payments")
 public class PaymentController extends HttpServlet {
 
     private PaymentDAO paymentDAO = new PaymentDAO();
+    private Gson gson = new Gson();
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -33,22 +37,22 @@ public class PaymentController extends HttpServlet {
                 return;
             }
 
-            String orderIdParam = request.getParameter("orderId");
+            String body = request.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
 
-            if (orderIdParam == null || orderIdParam.trim().isEmpty()) {
+            if (body == null || body.trim().isEmpty()) {
+                writeJson(response, HttpServletResponse.SC_BAD_REQUEST,
+                        "{\"success\":false,\"message\":\"Request body is empty\",\"data\":null}");
+                return;
+            }
+
+
+            PaymentRequest paymentRequest = gson.fromJson(body, PaymentRequest.class);
+
+            if (paymentRequest.getOrderId() == 0) {
                 writeJson(response, HttpServletResponse.SC_BAD_REQUEST,
                         "{\"success\":false,\"message\":\"Order id is required\",\"data\":null}");
                 return;
             }
-
-            PaymentRequest paymentRequest = new PaymentRequest();
-
-            paymentRequest.setOrderId(Integer.parseInt(orderIdParam));
-            paymentRequest.setPaymentMethod(request.getParameter("paymentMethod"));
-            paymentRequest.setCardNumber(request.getParameter("cardNumber"));
-            paymentRequest.setCardHolderName(request.getParameter("cardHolderName"));
-            paymentRequest.setExpiryDate(request.getParameter("expiryDate"));
-            paymentRequest.setCvv(request.getParameter("cvv"));
 
             IPaymentService paymentService =
                     PaymentFactory.getPaymentService(paymentRequest.getPaymentMethod());
@@ -73,10 +77,6 @@ public class PaymentController extends HttpServlet {
                             + "}"
                             + "}"
             );
-
-        } catch (NumberFormatException e) {
-            writeJson(response, HttpServletResponse.SC_BAD_REQUEST,
-                    "{\"success\":false,\"message\":\"Invalid order id\",\"data\":null}");
 
         } catch (Exception e) {
             writeJson(response, HttpServletResponse.SC_BAD_REQUEST,
