@@ -10,6 +10,7 @@ import com.example.model.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import redis.clients.jedis.Jedis;
 
+import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.*;
@@ -23,10 +24,19 @@ public class AuthController extends HttpServlet {
     private final IUserService userService = new UserService();
     private final IJwtService jwtService = new JwtService();
     private final ObjectMapper mapper = new ObjectMapper();
-    private static final String REDIS_HOST = "localhost";
-    private static final int REDIS_PORT = 5002;
-    private static final String USERS_CACHE_KEY = "users:all";
-    private static final int USERS_CACHE_TTL_SECONDS = 60;
+    private String redisHost;
+    private int redisPort;
+    private String usersCacheKey;
+    private int usersCacheTtlSeconds;
+
+    @Override
+    public void init() throws ServletException {
+        ServletContext context = getServletContext();
+        redisHost = requireContextParam(context, "redis.host");
+        usersCacheKey = requireContextParam(context, "users.cache.key");
+        redisPort = parseRequiredIntParam(context, "redis.port");
+        usersCacheTtlSeconds = parseRequiredIntParam(context, "users.cache.ttl.seconds");
+    }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -63,20 +73,20 @@ public class AuthController extends HttpServlet {
                 return;
             }
 
-            try (Jedis jedis = new Jedis(REDIS_HOST, REDIS_PORT)) {
-                String cachedUsers = jedis.get(USERS_CACHE_KEY);
+            try (Jedis jedis = new Jedis(redisHost, redisPort)) {
+                String cachedUsers = jedis.get(usersCacheKey);
                 if (cachedUsers != null) {
-                    System.out.println("[UserCache] HIT key=" + USERS_CACHE_KEY);
+                    System.out.println("[UserCache] HIT key=" + usersCacheKey);
                     resp.getWriter().write(cachedUsers);
                     return;
                 }
 
-                System.out.println("[UserCache] MISS key=" + USERS_CACHE_KEY + " -> loading from DB");
+                System.out.println("[UserCache] MISS key=" + usersCacheKey + " -> loading from DB");
                 List<User> users = userService.getAllUsers();
                 String usersJson = mapper.writeValueAsString(users);
 
-                jedis.setex(USERS_CACHE_KEY, USERS_CACHE_TTL_SECONDS, usersJson);
-                System.out.println("[UserCache] SET key=" + USERS_CACHE_KEY + " ttl=" + USERS_CACHE_TTL_SECONDS + "s");
+                jedis.setex(usersCacheKey, usersCacheTtlSeconds, usersJson);
+                System.out.println("[UserCache] SET key=" + usersCacheKey + " ttl=" + usersCacheTtlSeconds + "s");
                 resp.getWriter().write(usersJson);
                 return;
             } catch (Exception e) {
@@ -160,11 +170,28 @@ public class AuthController extends HttpServlet {
     }
 
     private void invalidateUsersCache() {
-        try (Jedis jedis = new Jedis(REDIS_HOST, REDIS_PORT)) {
-            jedis.del(USERS_CACHE_KEY);
-            System.out.println("[UserCache] INVALIDATE key=" + USERS_CACHE_KEY);
+        try (Jedis jedis = new Jedis(redisHost, redisPort)) {
+            jedis.del(usersCacheKey);
+            System.out.println("[UserCache] INVALIDATE key=" + usersCacheKey);
         } catch (Exception e) {
-            System.err.println("[UserCache] Failed to invalidate key=" + USERS_CACHE_KEY + ". Reason: " + e.getMessage());
+            System.err.println("[UserCache] Failed to invalidate key=" + usersCacheKey + ". Reason: " + e.getMessage());
+        }
+    }
+
+    private String requireContextParam(ServletContext context, String paramName) throws ServletException {
+        String value = context.getInitParameter(paramName);
+        if (value == null || value.trim().isEmpty()) {
+            throw new ServletException("Missing required context-param: " + paramName);
+        }
+        return value.trim();
+    }
+
+    private int parseRequiredIntParam(ServletContext context, String paramName) throws ServletException {
+        String value = requireContextParam(context, paramName);
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new ServletException("Invalid integer value for context-param " + paramName + ": " + value, e);
         }
     }
 }

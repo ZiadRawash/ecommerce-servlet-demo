@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import redis.clients.jedis.Jedis;
 
+import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.*;
@@ -19,31 +20,40 @@ public class CategoryController extends HttpServlet {
 
     private final ICategorySqlService categoryService = new CategorySqlService();
     private final ObjectMapper mapper = new ObjectMapper();
-    private static final String REDIS_HOST = "localhost";
-    private static final int REDIS_PORT = 5002;
-    private static final String CATEGORIES_CACHE_KEY = "categories:all";
-    private static final int CATEGORIES_CACHE_TTL_SECONDS = 60;
+    private String redisHost;
+    private int redisPort;
+    private String categoriesCacheKey;
+    private int categoriesCacheTtlSeconds;
+
+    @Override
+    public void init() throws ServletException {
+        ServletContext context = getServletContext();
+        redisHost = requireContextParam(context, "redis.host");
+        categoriesCacheKey = requireContextParam(context, "categories.cache.key");
+        redisPort = parseRequiredIntParam(context, "redis.port");
+        categoriesCacheTtlSeconds = parseRequiredIntParam(context, "categories.cache.ttl.seconds");
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType("application/json");
         resp.setCharacterEncoding("UTF-8");
 
-        try (Jedis jedis = new Jedis(REDIS_HOST, REDIS_PORT)) {
-            String cachedCategories = jedis.get(CATEGORIES_CACHE_KEY);
+        try (Jedis jedis = new Jedis(redisHost, redisPort)) {
+            String cachedCategories = jedis.get(categoriesCacheKey);
             if (cachedCategories != null) {
-                System.out.println("[CategoryCache] HIT key=" + CATEGORIES_CACHE_KEY);
+                System.out.println("[CategoryCache] HIT key=" + categoriesCacheKey);
                 resp.getWriter().write(cachedCategories);
                 return;
             }
 
-            System.out.println("[CategoryCache] MISS key=" + CATEGORIES_CACHE_KEY + " -> loading from DB");
+            System.out.println("[CategoryCache] MISS key=" + categoriesCacheKey + " -> loading from DB");
 
             List<Category> categories = categoryService.getAllCategories();
             String categoriesJson = mapper.writeValueAsString(categories);
 
-            jedis.setex(CATEGORIES_CACHE_KEY, CATEGORIES_CACHE_TTL_SECONDS, categoriesJson);
-            System.out.println("[CategoryCache] SET key=" + CATEGORIES_CACHE_KEY + " ttl=" + CATEGORIES_CACHE_TTL_SECONDS + "s");
+            jedis.setex(categoriesCacheKey, categoriesCacheTtlSeconds, categoriesJson);
+            System.out.println("[CategoryCache] SET key=" + categoriesCacheKey + " ttl=" + categoriesCacheTtlSeconds + "s");
             resp.getWriter().write(categoriesJson);
             return;
         } catch (Exception e) {
@@ -188,11 +198,28 @@ public class CategoryController extends HttpServlet {
     }
 
     private void invalidateCategoriesCache() {
-        try (Jedis jedis = new Jedis(REDIS_HOST, REDIS_PORT)) {
-            jedis.del(CATEGORIES_CACHE_KEY);
-            System.out.println("[CategoryCache] INVALIDATE key=" + CATEGORIES_CACHE_KEY);
+        try (Jedis jedis = new Jedis(redisHost, redisPort)) {
+            jedis.del(categoriesCacheKey);
+            System.out.println("[CategoryCache] INVALIDATE key=" + categoriesCacheKey);
         } catch (Exception ignored) {
-            System.err.println("[CategoryCache] Failed to invalidate key=" + CATEGORIES_CACHE_KEY);
+            System.err.println("[CategoryCache] Failed to invalidate key=" + categoriesCacheKey);
+        }
+    }
+
+    private String requireContextParam(ServletContext context, String paramName) throws ServletException {
+        String value = context.getInitParameter(paramName);
+        if (value == null || value.trim().isEmpty()) {
+            throw new ServletException("Missing required context-param: " + paramName);
+        }
+        return value.trim();
+    }
+
+    private int parseRequiredIntParam(ServletContext context, String paramName) throws ServletException {
+        String value = requireContextParam(context, paramName);
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new ServletException("Invalid integer value for context-param " + paramName + ": " + value, e);
         }
     }
 }
