@@ -57,6 +57,9 @@ public class AuthController extends HttpServlet {
         else if ("/login".equals(path)) {
             handleLogin(req, resp);
         }
+        else if ("/logout".equals(path)) {
+            handleLogout(req, resp);
+        }
         else {
             sendErrorResponse(resp, HttpServletResponse.SC_NOT_FOUND, "Endpoint not found");
         }
@@ -97,7 +100,10 @@ public class AuthController extends HttpServlet {
             resp.getWriter().write(mapper.writeValueAsString(users));
         }
         else if ("/logout".equals(path)) {
-            resp.getWriter().write("{\"message\": \"Logged out successfully\"}");
+            handleLogout(req, resp);
+        }
+        else {
+            sendErrorResponse(resp, HttpServletResponse.SC_NOT_FOUND, "Endpoint not found");
         }
     }
 
@@ -161,6 +167,12 @@ public class AuthController extends HttpServlet {
             sendErrorResponse(resp, 400, "Invalid login request");
         }
     }
+
+    private void handleLogout(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.getWriter().write("{\"message\": \"Logged out successfully\"}");
+    }
+
     private boolean isStringEmpty(String str) {
         return str == null || str.trim().isEmpty();
     }
