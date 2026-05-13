@@ -2,7 +2,6 @@ package com.example.Implementation;
 
 import com.example.Interfaces.IOrderService;
 import com.example.model.Order;
-
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,22 +15,19 @@ public class OrderSqlService implements IOrderService {
             conn = DBConnection.getConnection();
             conn.setAutoCommit(false);
 
+            // Get Cart ID
             int cartId = -1;
             String cartSql = "SELECT id FROM Cart WHERE user_id = ?";
             try (PreparedStatement ps = conn.prepareStatement(cartSql)) {
                 ps.setInt(1, userId);
                 ResultSet rs = ps.executeQuery();
-                if (rs.next()) {
-                    cartId = rs.getInt("id");
-                } else {
-                    return null;
-                }
+                if (rs.next()) cartId = rs.getInt("id");
+                else throw new RuntimeException("No cart found for this user.");
             }
 
-
-            String itemsSql = "SELECT ci.id as cart_item_id, ci.product_id, ci.quantity, p.price, p.stock " +
-                    "FROM CartItems ci " +
-                    "JOIN Products p ON ci.product_id = p.id " +
+            // Check the stocking
+            String itemsSql = "SELECT ci.product_id, ci.quantity, p.price, p.stock, p.name " +
+                    "FROM CartItems ci JOIN Products p ON ci.product_id = p.id " +
                     "WHERE ci.cart_id = ?";
 
             double totalAmount = 0;
@@ -41,28 +37,23 @@ public class OrderSqlService implements IOrderService {
                 ps.setInt(1, cartId);
                 ResultSet rs = ps.executeQuery();
                 while (rs.next()) {
-                    int productId = rs.getInt("product_id");
                     int quantity = rs.getInt("quantity");
-                    double price = rs.getDouble("price");
                     int stock = rs.getInt("stock");
+                    String productName = rs.getString("name");
 
                     if (quantity > stock) {
                         conn.rollback();
-                        System.out.println("Insufficient stock for product ID: " + productId);
-                        return null;
+                        throw new RuntimeException("Insufficient stock for product: " + productName);
                     }
 
-                    totalAmount += (price * quantity);
-                    itemsToOrder.add(new OrderItemTemp(productId, quantity, price));
+                    totalAmount += (rs.getDouble("price") * quantity);
+                    itemsToOrder.add(new OrderItemTemp(rs.getInt("product_id"), quantity, rs.getDouble("price")));
                 }
             }
 
-            if (itemsToOrder.isEmpty()) {
-                conn.rollback();
-                return null;
-            }
+            if (itemsToOrder.isEmpty()) throw new RuntimeException("Your cart is empty.");
 
-
+            // Make the order
             int orderId = -1;
             String insertOrderSql = "INSERT INTO Orders (user_id, total_amount, status) VALUES (?, ?, 'Pending')";
             try (PreparedStatement ps = conn.prepareStatement(insertOrderSql, Statement.RETURN_GENERATED_KEYS)) {
@@ -70,106 +61,87 @@ public class OrderSqlService implements IOrderService {
                 ps.setDouble(2, totalAmount);
                 ps.executeUpdate();
                 ResultSet rs = ps.getGeneratedKeys();
-                if (rs.next()) {
-                    orderId = rs.getInt(1);
-                }
+                if (rs.next()) orderId = rs.getInt(1);
             }
-
 
             String insertOrderItemSql = "INSERT INTO OrderItems (order_id, product_id, quantity, price_at_order) VALUES (?, ?, ?, ?)";
             String updateStockSql = "UPDATE Products SET stock = stock - ? WHERE id = ?";
             String clearCartSql = "DELETE FROM CartItems WHERE cart_id = ?";
 
-            try (PreparedStatement psInsertItem = conn.prepareStatement(insertOrderItemSql);
-                 PreparedStatement psUpdateStock = conn.prepareStatement(updateStockSql);
-                 PreparedStatement psClearCart = conn.prepareStatement(clearCartSql)) {
+            try (PreparedStatement psItem = conn.prepareStatement(insertOrderItemSql);
+                 PreparedStatement psStock = conn.prepareStatement(updateStockSql);
+                 PreparedStatement psClear = conn.prepareStatement(clearCartSql)) {
 
                 for (OrderItemTemp item : itemsToOrder) {
+                    psItem.setInt(1, orderId);
+                    psItem.setInt(2, item.productId);
+                    psItem.setInt(3, item.quantity);
+                    psItem.setDouble(4, item.price);
+                    psItem.addBatch();
 
-                    psInsertItem.setInt(1, orderId);
-                    psInsertItem.setInt(2, item.productId);
-                    psInsertItem.setInt(3, item.quantity);
-                    psInsertItem.setDouble(4, item.price);
-                    psInsertItem.addBatch();
-
-
-                    psUpdateStock.setInt(1, item.quantity);
-                    psUpdateStock.setInt(2, item.productId);
-                    psUpdateStock.addBatch();
+                    psStock.setInt(1, item.quantity);
+                    psStock.setInt(2, item.productId);
+                    psStock.addBatch();
                 }
-
-                psInsertItem.executeBatch();
-                psUpdateStock.executeBatch();
-
-
-                psClearCart.setInt(1, cartId);
-                psClearCart.executeUpdate();
+                psItem.executeBatch();
+                psStock.executeBatch();
+                psClear.setInt(1, cartId);
+                psClear.executeUpdate();
             }
 
-
             conn.commit();
-
-
             return new Order(orderId, userId, totalAmount, "Pending", new java.util.Date());
 
         } catch (SQLException e) {
-            if (conn != null) {
-                try {
-                    conn.rollback();
-                } catch (SQLException ex) {
-                    ex.printStackTrace();
-                }
-            }
-            e.printStackTrace();
-            return null;
+            try { if (conn != null) conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
+            throw new RuntimeException("Database error: " + e.getMessage());
         } finally {
-            if (conn != null) {
-                try {
-                    conn.setAutoCommit(true);
-                    conn.close();
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
-            }
+            try { if (conn != null) { conn.setAutoCommit(true); conn.close(); } } catch (SQLException e) { e.printStackTrace(); }
         }
     }
 
+    // Get order by id
     @Override
-    public List<Order> getUserOrders(int userId) {
-        List<Order> orders = new ArrayList<>();
-        String sql = "SELECT id, user_id, total_amount, status, created_at FROM Orders WHERE user_id = ? ORDER BY created_at DESC";
-
+    public Order getOrderById(int orderId) {
+        String sql = "SELECT id, user_id, total_amount, status, created_at FROM Orders WHERE id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setInt(1, userId);
+            ps.setInt(1, orderId);
             ResultSet rs = ps.executeQuery();
 
-            while (rs.next()) {
-                orders.add(new Order(
+            if (rs.next()) {
+                return new Order(
                         rs.getInt("id"),
                         rs.getInt("user_id"),
                         rs.getDouble("total_amount"),
                         rs.getString("status"),
                         rs.getTimestamp("created_at")
-                ));
+                );
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        return null; // If it does not exist
+    }
+
+    @Override
+    public List<Order> getUserOrders(int userId) {
+        List<Order> orders = new ArrayList<>();
+        String sql = "SELECT * FROM Orders WHERE user_id = ? ORDER BY created_at DESC";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                orders.add(new Order(rs.getInt("id"), rs.getInt("user_id"), rs.getDouble("total_amount"), rs.getString("status"), rs.getTimestamp("created_at")));
+            }
+        } catch (SQLException e) { e.printStackTrace(); }
         return orders;
     }
 
-
     private static class OrderItemTemp {
-        int productId;
-        int quantity;
-        double price;
-
-        OrderItemTemp(int productId, int quantity, double price) {
-            this.productId = productId;
-            this.quantity = quantity;
-            this.price = price;
-        }
+        int productId; int quantity; double price;
+        OrderItemTemp(int p, int q, double pr) { this.productId = p; this.quantity = q; this.price = pr; }
     }
 }
