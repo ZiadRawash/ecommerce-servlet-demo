@@ -18,26 +18,41 @@ public class OrderController extends HttpServlet {
     private final IOrderService orderService = new OrderSqlService();
     private final ObjectMapper mapper = new ObjectMapper();
 
-
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType("application/json");
         resp.setCharacterEncoding("UTF-8");
 
-        Integer userId = SecurityUtils.getCurrentUserId(req);
-        if (userId == null) {
-            sendErrorResponse(resp, HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized: Please log in");
+        Integer currentUserId = SecurityUtils.getCurrentUserId(req);
+        if (currentUserId == null) {
+            sendErrorResponse(resp, 401, "Please log in first.");
+            return;
+        }
+
+        String pathInfo = req.getPathInfo();
+
+        if (pathInfo == null || pathInfo.equals("/")) {
+            List<Order> orders = orderService.getUserOrders(currentUserId);
+            mapper.writeValue(resp.getWriter(), orders);
             return;
         }
 
         try {
-            List<Order> orders = orderService.getUserOrders(userId);
-            mapper.writeValue(resp.getWriter(), orders);
-        } catch (Exception e) {
-            sendErrorResponse(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to fetch orders: " + e.getMessage());
+            int orderId = Integer.parseInt(pathInfo.substring(1));
+            Order order = orderService.getOrderById(orderId);
+
+            // ID does not exist
+            if (order == null || order.getUserId() != currentUserId) {
+                sendErrorResponse(resp, 404, "Order not found or access denied.");
+                return;
+            }
+
+            mapper.writeValue(resp.getWriter(), order);
+
+        } catch (NumberFormatException e) {
+            sendErrorResponse(resp, 400, "Invalid Order ID format.");
         }
     }
-
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -46,28 +61,23 @@ public class OrderController extends HttpServlet {
 
         Integer userId = SecurityUtils.getCurrentUserId(req);
         if (userId == null) {
-            sendErrorResponse(resp, HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized: Please log in");
+            sendErrorResponse(resp, 401, "Unauthorized.");
             return;
         }
 
         try {
             Order newOrder = orderService.placeOrder(userId);
-
-            if (newOrder == null) {
-                sendErrorResponse(resp, HttpServletResponse.SC_BAD_REQUEST, "Failed to place order. Cart might be empty or insufficient stock.");
-                return;
-            }
-
-            resp.setStatus(HttpServletResponse.SC_CREATED);
+            resp.setStatus(201);
             mapper.writeValue(resp.getWriter(), newOrder);
-
+        } catch (RuntimeException e) {
+            sendErrorResponse(resp, 400, e.getMessage());
         } catch (Exception e) {
-            sendErrorResponse(resp, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "An internal server error occurred: " + e.getMessage());
+            sendErrorResponse(resp, 500, "An unexpected error occurred.");
         }
     }
 
-    private void sendErrorResponse(HttpServletResponse resp, int statusCode, String message) throws IOException {
-        resp.setStatus(statusCode);
-        resp.getWriter().write("{\"error\": \"" + message + "\"}");
+    private void sendErrorResponse(HttpServletResponse resp, int code, String msg) throws IOException {
+        resp.setStatus(code);
+        resp.getWriter().write("{\"error\": \"" + msg + "\"}");
     }
 }

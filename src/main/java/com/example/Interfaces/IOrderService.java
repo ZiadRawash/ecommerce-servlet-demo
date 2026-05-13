@@ -6,4 +6,5 @@ import java.util.List;
 public interface IOrderService {
     Order placeOrder(int userId);
     List<Order> getUserOrders(int userId);
+    Order getOrderById(int orderId);
 }
