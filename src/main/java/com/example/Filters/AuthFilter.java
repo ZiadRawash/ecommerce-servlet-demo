@@ -23,15 +23,28 @@ public class AuthFilter implements Filter {
         String path = request.getPathInfo();
 
 
-        if (path != null && (path.equals("/login") || path.equals("/signup"))) {
+        if (path != null && (path.equals("/login") || path.equals("/signup") || path.equals("/logout"))) {
             filterChain.doFilter(request, response);
             return;
         }
 
         String authHeader = request.getHeader("Authorization");
 
+        String token = null;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
+            token = authHeader.substring(7);
+        } else {
+            if (request.getCookies() != null) {
+                for (javax.servlet.http.Cookie c : request.getCookies()) {
+                    if ("AUTH_TOKEN".equals(c.getName())) {
+                        token = c.getValue();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (token != null) {
             try {
                 Claims claims = _jwtService.validateToken(token);
 
@@ -41,7 +54,6 @@ public class AuthFilter implements Filter {
                 request.setAttribute("userId", userId);
                 request.setAttribute("userRoles", roles);
 
-               
                 filterChain.doFilter(request, response);
                 return;
 
@@ -51,6 +63,7 @@ public class AuthFilter implements Filter {
                 return;
             }
         }
+
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.getWriter().write("Access Denied: Missing Authorization Header");
     }

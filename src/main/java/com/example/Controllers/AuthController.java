@@ -132,7 +132,7 @@ public class AuthController extends HttpServlet {
                 return;
             }
 
-            // 3. Database Operation
+
             if (userService.signUp(user)) {
                 invalidateUsersCache();
                 resp.setStatus(HttpServletResponse.SC_CREATED);
@@ -159,6 +159,11 @@ public class AuthController extends HttpServlet {
                 String token = jwtService.generateToken(user.getId(), userRoles);
 
                 resp.setStatus(HttpServletResponse.SC_OK);
+                int maxAge = 3600;
+                String cookieValue = token;
+                String cookieHeader = "AUTH_TOKEN=" + cookieValue + "; HttpOnly; Path=/; Max-Age=" + maxAge + "; SameSite=Strict";
+                resp.setHeader("Set-Cookie", cookieHeader);
+
                 resp.getWriter().write("{\"token\": \"" + token + "\"}");
             } else {
                 sendErrorResponse(resp, 401, "Invalid username or password");
@@ -169,6 +174,8 @@ public class AuthController extends HttpServlet {
     }
 
     private void handleLogout(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String cookieHeader = "AUTH_TOKEN=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict";
+        resp.setHeader("Set-Cookie", cookieHeader);
         resp.setStatus(HttpServletResponse.SC_OK);
         resp.getWriter().write("{\"message\": \"Logged out successfully\"}");
     }
